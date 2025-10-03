@@ -37,15 +37,32 @@ function getTaiXiu(sum) {
 
 /**
  * @function advancedPredictPattern
- * @description Dự đoán cầu dựa trên các pattern cơ bản (bệt, lặp, giằng co).
+ * @description Dự đoán cầu dựa trên các pattern cơ bản (giằng co, bệt, 2-1-2-1).
  * @param {string} history - Chuỗi lịch sử Tài/Xỉu ('t'/'x').
- * @returns {{du_doan: string, do_tin_cay: number}} - Kết quả dự đoán và độ tin cậy.
+ * @returns {{du_doan: string, do_tin_cay: number, ghi_chu: string}} - Kết quả dự đoán, độ tin cậy và ghi chú.
  */
 function advancedPredictPattern(history) {
-  if (history.length < 6) return { du_doan: "Chưa đủ dữ liệu", do_tin_cay: 0 };
+  // Cần ít nhất 8 phiên để xác định các pattern phức tạp hơn
+  if (history.length < 8) return { du_doan: "Chưa đủ dữ liệu", do_tin_cay: 0, ghi_chu: "Cần tối thiểu 8 phiên." };
 
-  // Đếm chuỗi bệt gần nhất
-  let lastChar = history[history.length - 1];
+  const lastChar = history[history.length - 1];
+  const oppositeChar = lastChar === 't' ? 'x' : 't';
+
+  // 1. Kiểm tra cầu Giằng co (1-1-1-1-1-1 hay T X T X T X)
+  const lastSix = history.slice(-6).toLowerCase();
+  const giangCoPattern1 = /^(tx){3}$/; // T X T X T X
+  const giangCoPattern2 = /^(xt){3}$/; // X T X T X T
+
+  if (giangCoPattern1.test(lastSix) || giangCoPattern2.test(lastSix)) {
+    // Nếu đang là T X T X T X (lastChar là X) thì dự đoán T (và ngược lại)
+    return {
+      du_doan: oppositeChar === 't' ? "Tài" : "Xỉu",
+      do_tin_cay: 85,
+      ghi_chu: "Cầu Giằng co (1-1)"
+    };
+  }
+
+  // 2. Kiểm tra chuỗi bệt gần nhất
   let streakCount = 1;
   for (let i = history.length - 2; i >= 0; i--) {
     if (history[i] === lastChar) {
@@ -55,59 +72,64 @@ function advancedPredictPattern(history) {
     }
   }
 
-  // 1. Nếu bệt >= 3 → Dự đoán bệt tiếp tục (Tin cậy cao)
-  if (streakCount >= 3) {
+  // Nếu bệt >= 5 → Dự đoán Bẻ Cầu (Tin cậy cao)
+  if (streakCount >= 5) {
+      // Bẻ cầu sau khi bệt quá dài (từ 5 phiên trở lên)
+      return {
+          du_doan: oppositeChar === 't' ? "Tài" : "Xỉu",
+          do_tin_cay: 75,
+          ghi_chu: `Bẻ cầu sau bệt ${streakCount} (dự đoán đảo)`
+      };
+  }
+  
+  // Nếu bệt từ 2 đến 4 → Dự đoán Bệt Tiếp tục (Tin cậy vừa)
+  if (streakCount >= 2 && streakCount < 5) {
     return {
-      du_doan: lastChar === 't' ? "Tài (Bệt)" : "Xỉu (Bệt)",
-      do_tin_cay: 90
+      du_doan: lastChar === 't' ? "Tài" : "Xỉu",
+      do_tin_cay: 65,
+      ghi_chu: `Bệt ${streakCount} (dự đoán theo bệt)`
     };
   }
 
-  // 2. Kiểm tra pattern lặp lại (4 phiên gần đây)
-  const patternLength = 4;
-  const recentPattern = history.slice(-patternLength);
-  let foundPattern = false;
 
-  // Tìm kiếm pattern 4 phiên gần nhất lặp lại trong lịch sử trước đó
-  for (let i = history.length - patternLength * 2 - 1; i >= 0; i--) {
-    // Kiểm tra nếu pattern trước đó (từ i) khớp với 4 phiên gần nhất
-    if (history.substring(i, i + patternLength) === recentPattern) {
-      foundPattern = true;
-      break;
-    }
+  // 3. Kiểm tra cầu 2-1-2-1 (Chỉ áp dụng cho 6 phiên gần nhất)
+  if (history.length >= 6) {
+      const lastSixLower = history.slice(-6).toLowerCase();
+      
+      // Nếu là T T X T T X (Dự đoán X tiếp theo để tạo 2-1-2-1-2...)
+      if (lastSixLower === 'ttxttx') {
+          return {
+              du_doan: "Xỉu",
+              do_tin_cay: 70,
+              ghi_chu: "Cầu 2-1-2 (đang là T T X T T, dự đoán X)"
+          };
+      }
+      
+      // Nếu là X X T X X T (Dự đoán T tiếp theo để tạo 2-1-2-1-2...)
+      if (lastSixLower === 'xxttxx') {
+          return {
+              du_doan: "Tài",
+              do_tin_cay: 70,
+              ghi_chu: "Cầu 2-1-2 (đang là X X T X X, dự đoán T)"
+          };
+      }
   }
 
-  if (foundPattern && history.length >= 8) { // Cần ít nhất 8 phiên để xác định lặp pattern 4
-    // Dự đoán ký tự tiếp theo sẽ là ký tự đầu tiên của pattern lặp
-    const nextChar = recentPattern[0];
-    return {
-      du_doan: nextChar === 't' ? "Tài (Lặp Pattern)" : "Xỉu (Lặp Pattern)",
-      do_tin_cay: 70
-    };
-  }
 
-  // 3. Kiểm tra cầu giằng co (1-1-1-1-1-1)
-  const lastSix = history.slice(-6).toLowerCase();
-  if (/^(tx){3}$/.test(lastSix) || /^(xt){3}$/.test(lastSix)) {
-    // Nếu đang là T X T X T X (lastChar là X) thì dự đoán T (và ngược lại)
-    return {
-      du_doan: lastChar === 't' ? "Xỉu (Giằng co)" : "Tài (Giằng co)",
-      do_tin_cay: 60
-    };
-  }
-
-  // 4. Không rõ cầu → Đoán ngược (Tin cậy thấp)
+  // 4. Không khớp với pattern nổi bật nào → Dự đoán Đảo Cầu (Tin cậy thấp)
+  // Đây là hành động mặc định, dự đoán ngược lại với phiên gần nhất.
   return {
-    du_doan: lastChar === 't' ? "Xỉu (Đảo cầu)" : "Tài (Đảo cầu)",
-    do_tin_cay: 50
+    du_doan: oppositeChar === 't' ? "Tài" : "Xỉu",
+    do_tin_cay: 50,
+    ghi_chu: "Không rõ cầu (Đảo cầu mặc định)"
   };
 }
 
 // Endpoint chính để lấy kết quả Tài Xỉu và dự đoán
 app.get('/api/taixiu/lottery', async (req, res) => {
   try {
-    // Lưu ý: URL này có thể không hoạt động vì nó là một placeholder
-    const response = await fetch('https://66.bot/GetNewLottery/LT_TaixiuMD5');
+    // LƯU Ý: URL này có thể không hoạt động vì nó là một placeholder
+    const response = await fetch('https://1.bot/GetNewLottery/LT_TaixiuMD5');
     
     // Kiểm tra trạng thái HTTP
     if (!response.ok) {
@@ -129,12 +151,13 @@ app.get('/api/taixiu/lottery', async (req, res) => {
 
     updatePattern(patternChar);
 
-    const { du_doan, do_tin_cay } = advancedPredictPattern(patternHistory);
+    // Lấy thông tin dự đoán đầy đủ
+    const { du_doan, do_tin_cay, ghi_chu } = advancedPredictPattern(patternHistory);
 
     // Bắt đầu từ 1, vì Phien (data.Expect) là phiên hiện tại đã có kết quả
     const phienDuDoan = Number(data.Expect) + 1;
     
-    // Trả về JSON theo định dạng mới mà bạn yêu cầu
+    // Trả về JSON với thông tin dự đoán chi tiết
     return res.json({
       "id": "ĐỘC QUYỀN CỦA @cha tao",
       "Phien": data.Expect, // Phiên hiện tại đã có kết quả
@@ -143,7 +166,10 @@ app.get('/api/taixiu/lottery', async (req, res) => {
       "Xuc_xac3": d3,
       "Tổng": sum,
       "Phien_du_doan": phienDuDoan, // Phiên tiếp theo cần dự đoán
-      "Du_doan": du_doan.split(' ')[0] // Chỉ lấy "Tài" hoặc "Xỉu" cho trường Du_doan
+      "Du_doan": du_doan, // "Tài" hoặc "Xỉu"
+      "Do_tin_cay": do_tin_cay, // Độ tin cậy của dự đoán
+      "Ghi_chu_du_doan": ghi_chu, // Lý do dự đoán
+      "Lich_su_cau_gan_nhat": patternHistory.toUpperCase().split('').join('-') // Lịch sử T-X
     });
   } catch (error) {
     // Ghi lỗi chi tiết ra console để debug
@@ -158,4 +184,3 @@ app.get('/api/taixiu/lottery', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Server đang chạy tại http://localhost:${PORT}`);
 });
-
